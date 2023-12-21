@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
     // meaning redis stores all values as bytes
 
     println!("The result of the operation: {:?}", result);
-    //prints out the result from the above operation in bytes
-
+    //prints out the result from the above operation (the "GET" from the redis db) in bytes
+    
     Ok(())
 }
