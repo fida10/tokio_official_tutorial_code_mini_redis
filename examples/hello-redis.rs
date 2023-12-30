@@ -8,7 +8,7 @@ async fn main() -> Result<()> {
     // the connection happens asynchronously because it is a network connection happening over the internet
     // may fail, so adding a question mark operator at the end
 
-    client.set("hello", "world".into()).await?;
+    //client.set("hello", "world".into()).await?;
     // this line adds a key value pair of "hello": "world" INTO the redis database
 
     let result = client.get("hello").await?;
