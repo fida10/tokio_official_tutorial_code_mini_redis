@@ -78,6 +78,7 @@ async fn process(socket: TcpStream, db: ShardedDb) {
                 //124884239582 % 1000 = 582
                 //9 % 1000 = 9
                 //124903 % 1000 = 903
+                //each time it generates a (consistent for the key) shard index that will never surpass db.len (number of shards)
 
                 /*
                 Explanation of a hasher
