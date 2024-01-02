@@ -1,9 +1,3 @@
-/*
-File reorganized here to make it easier to run
-cargo run --bin client
-*/
-
-
 use bytes::Bytes;
 use mini_redis::client;
 use tokio::sync::{mpsc, oneshot};
