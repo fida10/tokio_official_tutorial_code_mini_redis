@@ -110,7 +110,7 @@ async fn main() {
     t2_setting.await.unwrap();
     manager.await.unwrap();
 
-        /*
+    /*
     Note that this code will not quite work as expected
     When it first runs, "Best FPS" key is empty, so when we do a get on it, it will return nothing (if t1_getting executes first)
     However the second time we run this client, it will return the expected value of "Halo Reach"

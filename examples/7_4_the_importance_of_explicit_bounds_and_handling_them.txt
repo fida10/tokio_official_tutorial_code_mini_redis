@@ -1,0 +1,89 @@
+/*
+It is important to put a bounds on the capacity of waiting tasks (i.e. when we put a bounds on the number of waiting messages an mpsc tunnel can store)
+Not putting a bound may result in a significant amount of tasks piling up and waiting to be completed
+These tasks existing in queue consume memory, to the point where eventually it can cause system failure due to the uncontrolled accumulation
+Like too many leaves accumulating on a gutter before the wind has a chance to blow them away, causing the gutter to collapse
+
+Rust/Tokio have some built in methods for handling this
+
+Example: 
+
+loop {
+    some_async_task();
+}
+
+The above loop will run infinitely, however the some_async_task will not execute at all
+This is because futures in rust are LAZY
+Meaning that unless we actually use or consume the future somehow, it will not be executed
+Consumption can be done in a number of ways but we usually do it with await:
+
+loop {
+    some_async_task().await;
+}
+
+Interestingly, with await, even when we consume the future, await still forces the current task (thread) to stop until the future in some_async_task() is executed
+Meaning in this case, we are also not infinitely queuing tasks
+Rather, we are executing tasks one by one and not going to the next task until the current one is done
+
+
+Another way to handle this involves mpsc channels, where we specify the number of futures that can be queued in the channel to be processed by the receiver at any time: 
+
+Example: 
+    let (sender_cloneable, mut receiver) = mpsc::channel(32);
+    //32 simultaneous waiting futures can be queued
+
+
+Another way we can explicitly limit the number of queued tasks is with the select! macro:
+Purpose: The select! macro is used to wait on multiple asynchronous operations, proceeding with the one that completes first.
+Use Case: It's especially useful when you need to handle several tasks simultaneously and want to respond to whichever task finishes first.
+Example:
+Imagine you have two asynchronous functions, async_function1 and async_function2, and you want to execute whichever completes first.
+
+async fn async_function1() -> String {
+    // Simulates some async work
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    "Function 1 completed".to_string()
+}
+
+async fn async_function2() -> String {
+    // Simulates some async work
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    "Function 2 completed".to_string()
+}
+
+#[tokio::main]
+async fn main() {
+    select! {
+        result1 = async_function1() => {
+            println!("Result: {}", result1);
+        }
+        result2 = async_function2() => {
+            println!("Result: {}", result2);
+        }
+    }
+}
+
+In this example, async_function1 and async_function2 are both started, but select! will complete as soon as one of them finishes, printing the result of the first completed function.
+
+Meaning if result1 finishes first, it is printed and result2 is ignored (that doesn't mean it doesn't execute, its just that the thread moves on). Kind of like an if statement.
+
+
+One more way to handle async operations is with the join! macro: 
+Explanation:
+Purpose: The join! macro is used to wait for multiple asynchronous operations to complete.
+Use Case: It's useful when you need to run several tasks concurrently and want to wait for all of them to finish.
+
+#[tokio::main]
+async fn main() {
+    let (result1, result2) = join!(async_function1(), async_function2());
+    println!("Result 1: {}", result1);
+    println!("Result 2: {}", result2);
+}
+
+In this case, both async_function1 and async_function2 are run concurrently. The join! macro waits for both of them to complete, and then the results are printed (unlike wit select, which only waits for one to finish, the first to finish specifically)
+
+Summary of select and join
+select! is for running multiple tasks and acting on whichever finishes first.
+join! is for running multiple tasks concurrently and waiting for all of them to complete.
+*/
+
