@@ -1,8 +1,3 @@
-/*
-Execute with: 
-cargo run --bin main
-*/
-
 use std::io;
 
 use tokio::{fs::File, io::AsyncWriteExt};
