@@ -85,5 +85,8 @@ In this case, both async_function1 and async_function2 are run concurrently. The
 Summary of select and join
 select! is for running multiple tasks and acting on whichever finishes first.
 join! is for running multiple tasks concurrently and waiting for all of them to complete.
+
+
+Despite all of this, care must be taken to ensure that infinite futures are not queued. i.e. ensure a limit exists to how many connections a server can have simultaneously; pick a bounds on channels as well.
 */
 
