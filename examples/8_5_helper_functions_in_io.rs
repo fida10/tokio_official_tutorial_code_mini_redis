@@ -1,11 +1,4 @@
-/*
-Execute with:
-cargo run --bin main
-*/
-
-
 use tokio::{fs::File, io};
-
 
 /*
 Helper functions also exist for read and write, i.e. copy example: 

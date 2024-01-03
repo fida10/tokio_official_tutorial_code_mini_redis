@@ -1,9 +1,9 @@
-use std::io;
-
-use tokio::{fs::File, io::AsyncWriteExt};
+use tokio::{fs::File, io::{AsyncWriteExt, self}};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    //note how we are using the io (input output) from tokio, not std
+
     let mut file = File::create("write.txt").await?;
     /*
     This line creates a new file with the path that is specified in the string literal
