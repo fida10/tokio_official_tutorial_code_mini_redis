@@ -1,0 +1,48 @@
+How does the parse_frame method actually work? We saw previously that it keeps track of if we have a complete frame to return, in which case that complete frame is returned. But how? 
+
+Implementation: 
+
+use mini_redis::{Frame, Result};
+use mini_redis::frame::Error::Incomplete;
+use bytes::Buf;
+use std::io::Cursor;
+
+fn parse_frame(&mut self) //remember, this function is part of the Connection struct
+    -> Result<Option<Frame>>
+{
+    // Create the `T: Buf` type.
+    let mut buf = Cursor::new(&self.buffer[..]);
+    //Cursor here too (but from std), we use it to keep track of where we are in the buffer (which comes from the field in Connection)
+
+    // Check whether a full frame is available
+    match Frame::check(&mut buf) {
+        //So it appears this Frame::check checks the buffer to see if a full frame is contained within
+        //Frame::check code --> https://github.com/tokio-rs/mini-redis/blob/tutorial/src/frame.rs
+            //Looks like all it does is check if the data within the buffer starts with the correct wire protocol byte (+, -, etc.) for a frame in redis (see https://redis.io/docs/reference/protocol-spec/#resp-protocol-description for more of this, specifically the "first byte" part of the table)
+        Ok(_) => {
+            // Get the byte length of the frame
+            let len = buf.position() as usize;
+
+            // Reset the internal cursor for the
+            // call to `parse`.
+            buf.set_position(0);
+            //looks like since Frame::check checks the first byte to see if it matches a wire protocol, them the buf position (cursor) should be reset to 0 so that the next call of this method checks the first byte too, to see if this is a valid frame
+
+            // Parse the frame
+            let frame = Frame::parse(&mut buf)?;
+            // Discard the frame from the buffer
+            self.buffer.advance(len);
+            //The above two lines first read (parse) the data from the buffer (via Frame::parse, code here: https://github.com/tokio-rs/mini-redis/blob/tutorial/src/frame.rs) and then remove the data from the buffer (so it can be used again for the next frame) (self.buffer.advance)
+
+            // Return the frame to the caller.
+            Ok(Some(frame))
+            //returned the parsed frame back to the caller
+        }
+        // Not enough data has been buffered
+        Err(Incomplete) => Ok(None),
+        // An error was encountered
+        Err(e) => Err(e.into()),
+        //if Frame::check returns an Incomplete (meaning a full frame is not recieved) or an error, we handle it here and send it on
+            //can do this when returning bulk string (see case handling $ in Frame::check)
+    }
+}

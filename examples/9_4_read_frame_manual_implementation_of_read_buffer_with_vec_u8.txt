@@ -1,0 +1,70 @@
+We can do the same thing manually with a Vec<u8> buffer to show a bit of what BytesMut takes care of for us --> 
+
+use tokio::net::TcpStream;
+
+pub struct Connection {
+    stream: TcpStream,
+    buffer: Vec<u8>,
+    cursor: usize,
+}
+
+impl Connection {
+    pub fn new(stream: TcpStream) -> Connection {
+        Connection {
+            stream,
+            // Allocate the buffer with 4kb of capacity.
+            buffer: vec![0; 4096],
+            //using a Vec<u8> instead of a BytesMut, filled with 0's initially
+            cursor: 0,
+            //need a cursor to keep track of where we are in the buffer (explained further below)
+        }
+    }
+}
+
+
+And the read_frame function --> 
+
+use mini_redis::{Frame, Result};
+
+pub async fn read_frame(&mut self)
+    -> Result<Option<Frame>>
+{
+    loop {
+        if let Some(frame) = self.parse_frame()? {
+            return Ok(Some(frame));
+        }
+
+        // Ensure the buffer has capacity
+        if self.buffer.len() == self.cursor {
+            // Grow the buffer
+            self.buffer.resize(self.cursor * 2, 0);
+        }
+        //this grows the size of the buffer if the buffer is at capacity
+        //the "cursor" keeps track of how full the buffer is
+        //in this case, if the cursor is the same size as the buffer, it means the buffer is full and must be expanded
+        //we do so by doubling its size; the extra capacity is temporarily filled with empty 0's
+
+        // Read into the buffer, tracking the number
+        // of bytes read
+        let n = self.stream.read(
+            &mut self.buffer[self.cursor..]).await?;
+        if 0 == n {
+            if self.cursor == 0 {
+                return Ok(None);
+            } else {
+                return Err("connection reset by peer".into());
+            }
+        } else {
+            // Update our cursor
+            self.cursor += n;
+            //this moves the cursor by however many bytes were read.
+            //in the next iteration of the thread, if the frame is parseable (via parse_frame() above), then it is returned
+            //otherwise, the buffer is grown if it is too small for the frame (if self.buffer.len() == self.cursor)
+        }
+    }
+}
+
+This does the same thing as 9_3 but we have to explicitly write the code keeping track of the cursor (where we are in the buffer)
+This is done implicitly by BytesMut
+Another advantage of BytesMut is we don't have to specify an initial holder value in the buffer
+    Which we do need to do in Vec<u8>, which is why we fill it with 0's initially as a placeholder (vec![0; 4096])

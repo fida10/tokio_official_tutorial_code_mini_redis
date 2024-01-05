@@ -1,0 +1,34 @@
+The purpose of the Connection struct (which we used to parse a TcpStream of its Frames in several places, i.e. 6.2 with the sharded database)...is to do exactly that, to wrap a TcpStream and give us easy ways to access its Frames. It is a wrapper struct.
+
+It is roughly implemented like this: 
+
+use tokio::net::TcpStream;
+use mini_redis::{Frame, Result};
+
+struct Connection {
+    stream: TcpStream,
+    // ... other fields here
+}
+
+impl Connection {
+    /// Read a frame from the connection.
+    /// 
+    /// Returns `None` if EOF is reached
+    pub async fn read_frame(&mut self)
+        -> Result<Option<Frame>>
+    {
+        // implementation here
+    }
+
+    /// Write a frame to the connection.
+    pub async fn write_frame(&mut self, frame: &Frame)
+        -> Result<()>
+    {
+        // implementation here
+    }
+}
+
+Again, the purpose of the Connection struct is to allow us to conveniently parse the Frames that are within a TcpStream for processing with read_frame. 
+It also allows us to write back to the stream as well with write_frame.
+
+Full code is here: https://github.com/tokio-rs/mini-redis/blob/tutorial/src/connection.rs

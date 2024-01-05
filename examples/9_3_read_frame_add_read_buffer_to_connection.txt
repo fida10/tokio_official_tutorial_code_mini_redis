@@ -1,0 +1,77 @@
+A "read_frame" method will be implemented for the connection struct, to support buffered reading.
+Why?
+Because making a call to the read() method in TcpStream may return an arbitrary amount of data, and we may want to control the amount of data in each frame.
+
+Buffered reading ensures that an entire frame is returned, as opposed to a partial frame or multiple frames. The size of the frame that is being read is specified by the sender (when the sender writes to the TcpStream)
+
+To correctly implement this, we add a "buffer" field to the Connection struct: 
+
+use bytes::BytesMut;
+use tokio::net::TcpStream;
+
+pub struct Connection {
+    stream: TcpStream,
+    buffer: BytesMut,
+}
+
+impl Connection {
+    pub fn new(stream: TcpStream) -> Connection {
+        Connection {
+            stream,
+            // Allocate the buffer with 4kb of capacity.
+            buffer: BytesMut::with_capacity(4096),
+            //note that this uses BytesMut, rather than a Vec<u8> as its buffer. This is because BytesMut comes built in with something called a cursor
+                More on that in 9_4, but in summary, the cursor is used to specify how full the buffer is currently
+                It is kind of like a pointer, or the lines on a test tube used to measure how full the tube is
+                Cursor starts off at the start of the buffer (0) and increases as the buffer fills up
+        }
+    }
+}
+
+This buffer field has an initial set capacity (which expands if the frame exceeds this capacity)
+
+Next, we implement read_frame: 
+
+use tokio::io::AsyncReadExt;
+use bytes::Buf;
+use mini_redis::Result;
+
+//though not stated, note that this read_frame method is within an impl block in the Connection struct: https://github.com/tokio-rs/mini-redis/blob/tutorial/src/connection.rs
+
+pub async fn read_frame(&mut self)
+    -> Result<Option<Frame>>
+{
+    loop {
+        // Attempt to parse a frame from the buffered data. If
+        // enough data has been buffered, the frame is
+        // returned.
+        if let Some(frame) = self.parse_frame()? { //note that parse_frame method is defined here: https://github.com/tokio-rs/mini-redis/blob/tutorial/src/connection.rs
+            return Ok(Some(frame));
+        }
+        //I think this means if we get back a complete frame from the TcpStream (which parse_frame checks), it will be returned
+        //parse_frame method will be explained more in 9_5
+
+        // There is not enough buffered data to read a frame.
+        // Attempt to read more data from the socket.
+        //
+        // On success, the number of bytes is returned. `0`
+        // indicates "end of stream".
+        if 0 == self.stream.read_buf(&mut self.buffer).await? { //as stated above, this tracks how many bytes have been read from the stream in this iteration of the loop (returned by self.stream.read_buf)
+
+            // The remote closed the connection. For this to be
+            // a clean shutdown, there should be no data in the
+            // read buffer. If there is, this means that the
+            // peer closed the socket while sending a frame.
+            if self.buffer.is_empty() {
+                return Ok(None);
+                //as stated above, checks to see if the buffer is empty (meaning all data has been returned)
+            } else {
+                return Err("connection reset by peer".into());
+                //if buffer is not empty and 0 is returned by the peer (client or server that is connecting/sending via this stream), it means that a frame was in the process of being sent and the sender closed the connection
+                //this is an error and should not have happened, all data should be returned before the connection closes
+            }
+        }
+    }
+}
+
+See a usage of read_frame in 6_2

@@ -1,0 +1,97 @@
+The write_frame function thankfully takes care of a lot of our headaches when reading
+If we use this function to write frames to the stream, it more or less guarantees that the read function will also get a complete frame
+"more or less", because of the Array(Vec<Frame>) subtype of Frame, which can have multiple frames
+
+To implement writing, we do the following: 
+
+Modification to Connection to include write field --> 
+use tokio::io::BufWriter;
+use tokio::net::TcpStream;
+use bytes::BytesMut;
+
+pub struct Connection {
+    stream: BufWriter<TcpStream>,
+    /* 
+    using a BufWriter object here
+    This has a built in buffer; it works like this
+    When we add stuff to it, it does not immediately write the stuff, rather it stores it inside its internal buffer
+    When that internal buffer is full, then it writes to the TCP stream and empties the buffer
+    This is to reduce the number of writes done, which are expensive
+    */
+    buffer: BytesMut,
+    //a buffer to be used to read with (see previous sections for more on this)
+    //NOTE THAT THIS IS NOT USED BY BUFWRITER, WHICH HAS ITS OWN INTERNAL BUFFER
+}
+
+impl Connection {
+    pub fn new(stream: TcpStream) -> Connection {
+        Connection {
+            stream: BufWriter::new(stream),
+            buffer: BytesMut::with_capacity(4096),
+        }
+    }
+}
+
+
+And now the write_frame method --> 
+
+use tokio::io::{self, AsyncWriteExt};
+use mini_redis::Frame;
+
+async fn write_frame(&mut self, frame: &Frame)
+    -> io::Result<()>
+{
+    match frame {
+        Frame::Simple(val) => {
+            self.stream.write_u8(b'+').await?;
+            self.stream.write_all(val.as_bytes()).await?;
+            self.stream.write_all(b"\r\n").await?;
+        }
+        Frame::Error(val) => {
+            self.stream.write_u8(b'-').await?;
+            self.stream.write_all(val.as_bytes()).await?;
+            self.stream.write_all(b"\r\n").await?;
+        }
+
+        /*
+        The above does the following: 
+            Writes the appropriate byte at the start of the frame (specified in the wire protocol of redis - https://redis.io/docs/reference/protocol-spec/#resp-protocol-description) (self.stream.write_u8)
+            Writes the value of the given Frame (as bytes, self.stream.write_all(val.as_bytes()).await?;)
+            Writes the end of the frame (self.stream.write_all(b"\r\n").await?;) (assuming b"\r\n" comes from wire protocol as how to end a command on redis)
+
+        */
+
+        Frame::Integer(val) => {
+            self.stream.write_u8(b':').await?;
+            self.write_decimal(*val).await?;
+            //looks like integers don't have an end like strings do, (self.stream.write_all(b"\r\n").await?;)
+        }
+        Frame::Null => {
+            self.stream.write_all(b"$-1\r\n").await?;
+        }
+        Frame::Bulk(val) => {
+            let len = val.len();
+
+            self.stream.write_u8(b'$').await?;
+            self.write_decimal(len as u64).await?;
+            self.stream.write_all(val).await?;
+            self.stream.write_all(b"\r\n").await?;
+            //I suppose this writes the entire bulk of commands; the number of commands looks like it needs to be appended to the string after the '$' (self.stream.write_u8(b'$').await?;, then self.write_decimal(len as u64).await?;)
+        }
+        Frame::Array(_val) => unimplemented!(),
+        //Array is implemented here, its implementation is a bit more complex given it can have multiple Frames: https://github.com/tokio-rs/mini-redis/blob/tutorial/src/connection.rs#L158C18-L158C29
+    }
+
+    self.stream.flush().await;
+    /*
+    As we know, BufWriter uses an internal buffer to store data
+    When that is full, it writes that data to the TcpStream
+    This flush takes care of any residual data that is still in the buffer (that has not been written)
+    Kind of like a bucket of water
+    When its full, it is dumped
+    But what if it is not full and we're done? What about the residual water? 
+    We take care of that last bit of water with flush
+    */
+
+    Ok(())
+}

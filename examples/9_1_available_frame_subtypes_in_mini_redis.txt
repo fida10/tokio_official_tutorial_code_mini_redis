@@ -1,0 +1,28 @@
+This has less to do with tokio and more to do with mini-redis
+
+Per the redis wire protocol (the protocol clients implement in order to communicate with redis: https://redis.io/docs/reference/protocol-spec/), mini-redis divides up different data types into enum variants
+    Each of these are within something called a frame
+    Frame enum as it is defined in mini-redis: 
+
+use bytes::Bytes;
+
+enum Frame {
+    Simple(String),
+    Error(String),
+    Integer(u64),
+    Bulk(Bytes),
+    Null,
+    Array(Vec<Frame>),
+}
+
+A frame is a unit of data transmitted between 2 peers (i.e. a server and a client)
+I.e. we may use a frame to send a command from a client to the server, which is hosting the database
+The various enum variants are also useful for handling and sending different kinds of data, as can be seen
+    (i.e. Strings, error messages, integers, sending bulk data, and even sending other frames)
+This is again in line with the wire protocol that redis advises all clients to implement (as these values are easily transmitted into redis)
+
+Think of the individual frame subtypes like envelopes
+    Different envelopes are suited better for different contents
+    i.e. the Simple envelope carries a String within, while the Array envelope is like a big container with other envelopes (Frames) within, while bulk can have lots of data (as a Bytes instance) stored within
+
+Full frame implementation specified here: https://github.com/tokio-rs/mini-redis/blob/tutorial/src/frame.rs
