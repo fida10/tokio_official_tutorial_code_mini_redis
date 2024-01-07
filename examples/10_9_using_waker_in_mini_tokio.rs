@@ -33,6 +33,11 @@ impl Future for Delay {
                 }
 
                 waker.wake();
+                /*
+                Through wake_by_ref method definied in the Task wrapper (far) below, the call to wake() here reschedules the task for execution
+                Which makes sense at this point because the timer is complete, so this future is done
+                Reschedule meaning this poll() functions is called again, and this time, it will return Poll::Ready, thereby completing
+                 */
             });
 
             Poll::Pending
@@ -85,6 +90,16 @@ impl MiniTokio {
     /*
     The spawn function is used to spawn a new task onto the executor. 
     It takes a future, wraps it in a Task struct, and sends it to the scheduled queue via the sender.
+    We send a reference to sender (&self.sender) because the Task::spawn method will clone this sender and insert it into the correct field in the Task
+        Remember, mpsc channels are multi-producer, single consumer
+        So each task will have a sender half of the channel which leads back to MiniTokio, which holds the receiver half in its "scheduled" field
+    
+    This method is called in the main function
+    The future in this spawn is just a container, that's why it doesn't return anything
+    However, for it to resolve, the future within must complete and return something
+    And THIS is where we put the Delay instance
+
+    See (far) below in the Task::spawn method and the main method for more details
      */
 
     fn run(&self) {
@@ -95,8 +110,13 @@ impl MiniTokio {
     /*
     The run function is the main loop of the executor. 
     It continuously receives tasks from the scheduled queue and polls them. 
+        Again, tasks have a sender half which they use to send themselves to mini-tokio
+        They are received and processed here via while let
     If a task is not ready yet, its poll method will ensure that it gets re-scheduled for polling when it becomes ready.
         Task's poll method is below 
+
+    Unlike before, where tasks were continuously being polled before they were ready, task.poll() logic will instead not re-send the task to mini-tokio UNTIL it is ready to proceed
+    See below task.poll() method for how
      */
 }
 
@@ -113,6 +133,23 @@ struct Task {
     //the sender with which tasks will be sent to the executor (our mini-tokio, in this case)
         //remember, mini-tokio has an mpsc channel as well, which can have one receiver (mini-tokio) and mutliple senders (for multiple tasks)
 }
+    /*
+    The job of the task struct is to serve as a wrapper around a future
+    In this particular case, "Delay" struct instances
+    The task itself is a wrapper future which resolves when the future it is wrapped around also completes
+    It is mini-tokios way of tracking when a future is done
+    
+    Its like a labelled oven-proof smart container that food is put into before being putting into the oven
+    It is not really food but makes it easier for the baker to handle and move the food
+    It also signals to the baker if the food it holds is complete
+
+    A better example might be an apple product
+    You can have all of your own data (your own music, pictures, emails, etc.) (futures being inserted into mini-tokio)
+    But for it to work on apple's ecosystem, it must all be placed inside of an apple device (the "Task" wrapper in this case)
+
+    An "executor" field exists as well, which holds a sender half of an mpsc channel
+    The reciever half of this channel is on the "receiver" field of mini-tokio
+    */
 
 use futures::task::{self, ArcWake};
 impl ArcWake for Task {
@@ -124,6 +161,20 @@ impl ArcWake for Task {
 This is an implementation of the ArcWake trait for Task. 
 ArcWake is a trait provided by the futures crate that defines a method for waking up a task. 
 Here, wake_by_ref is implemented to call the schedule method on Task.
+
+This is what allows a taks to schedule itself once it is ready to proceed
+The logic for how a task schedules itself is refined in the schedule method below
+But in summary, the schedule() method is sends the task to the executor (mini-tokio)
+
+If you look through the code, you will see that wake_by_ref is never actually explicitly called
+So how does it work?
+The wake_by_ref method is attached to a Waker; when the waker's wake() method is called, that's when this method is called too
+Remember, Task is a wrapper future around an actual future we are trying to resolve 
+In this case, Delay
+Notice in Delay, we have this code in the else block (executes if the timer is not finished (not Poll::Ready, but Poll::Pending) when we poll() the method): 
+                waker.wake();
+Through the code below for Task (in Task's impl block), we link Task's wake method with the wake method of the future it wraps around (Delay)
+Sooooo essentially what is happening is when the wake method is called in the Delay struct for Poll::Pending, this wake_by_ref method is also called, which reschedules the task for execution
 */
 
 impl Task {
@@ -131,8 +182,8 @@ impl Task {
         self.executor.send(self.clone()).unwrap();
     }
     /*
-    The schedule method is used to send a clone of the task back to the executor for polling. 
-    This is used when a task is not ready and needs to be polled again later.
+    As explained above, this re-adds the Task to the executor (mini-tokio)
+    Called when a task was pending but now is ready to proceed (wake() is called on Waker)
      */
 
     fn poll(self: Arc<Self>) {
@@ -140,12 +191,14 @@ impl Task {
         // uses the `ArcWake` impl from above.
         let waker = task::waker(self.clone());
         let mut cx = Context::from_waker(&waker);
+        //Creates a waker, then links the waker to this task with Context (cx)
 
         // No other thread ever tries to lock the future
         let mut future = self.future.try_lock().unwrap();
 
         // Poll the future
         let _ = future.as_mut().poll(&mut cx);
+        //and this activates the poll method in Delay, causing the events described above (both in the delay poll() function AND the wake_by_ref() method in ArcWake)
     }
     /*
     The poll method is where the task's future gets polled. 
@@ -168,25 +221,49 @@ impl Task {
         });
 
         let _ = sender.send(task);
+        /*
+        this line is to send the task to the executor, to be executed initially (polled)
+        successful execution ends the story
+        unsuccessful execution (Poll::Pending) triggers the logic we wrote for if the task is not complete (Which is inside the Delay struct)
+            This eventually results in the wake() method being called, scheduling (sending) the task again to the executor
+        All this is explained in more detail above
+        */
     }
     /*
     The spawn method is used to create a new Task from a future and send it to the executor. 
     The future is wrapped in a Box and Pinned, and then wrapped in a Mutex for thread safety. 
     The Task is then wrapped in an Arc for shared ownership and sent to the executor.
+
+    Some more details! This is NOT directly called in main (when we spawn in main, we are calling the mini-tokio spawn method)
+    Instead, this spawn method is called (far) above in the mini-tokio spawn() method: 
+            Task::spawn(future, &self.sender);
+    As described in comments in that method, the "future" is just a holder/container that doesn't return anything
+    But any futures we put INSIDE this future must resolve for this holder future to complete
+    And again, THIS is where we put the Delay instance
      */
 }
 
 fn main() {
     let mini_tokio = MiniTokio::new();
 
-    mini_tokio.spawn(async {
+    mini_tokio.spawn(async 
+        {
         let when = Instant::now() + Duration::from_millis(10);
         let future = Delay { when };
+        /*
+        We insert the Delay future here; until it completes, THIS ENTIRE FUTURE cannot complete
+        That's how it works as a container/holder
+         */
 
         let out = future.await;
+        //.await calls the poll() function on Delay, which triggers all of our logic above
 
         assert_eq!(out, "done");
-    });
+    }
+    /*
+    THIS BLOCK IS THE CONTAINER/HOLDER FUTURE INSIDE OF THE MINI-TOKIO SPAWN AND TASK SPAWN METHODS
+     */
+);
 
     mini_tokio.run();
 }
