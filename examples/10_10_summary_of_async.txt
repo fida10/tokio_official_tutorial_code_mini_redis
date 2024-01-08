@@ -1,0 +1,13 @@
+Async rust concepts covered in our mini-tokio project --> 
+
+Asynchronous Rust operations are lazy and require a caller to poll them.
+    We usually do this with .await, but it looks like .join! and .select! can do the same thing, with a macro
+
+Wakers are passed to futures to link a future to the task calling it.
+
+When a resource is not ready to complete an operation, Poll::Pending is returned and the task's waker is recorded.
+When the resource becomes ready, the task's waker is notified.
+The executor receives the notification and schedules the task to execute.
+^^^In other words, the wake method is called, letting the executor know that the method should be polled again
+
+The task is polled again, this time the resource is ready and the task makes progress.

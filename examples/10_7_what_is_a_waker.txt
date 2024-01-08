@@ -5,7 +5,7 @@ The basic flow appears to work like this:
     Waker function is invoked (which is a part of the future's definition, see the future definition and below)
     Future completes and invokes Waker
     This notifies the executor that the future is ready. It is executed again
-    This time, Future (poll() function) returns Poll::Ready, and is marked in "Terminated" state by the executor (see 10_6 for this)
+    This time, Future (poll() function) returns Poll::Ready, and is marked in "Terminated" state by the executor (see 10_4 for this)
 
 As mentioned above, the Waker portions of the future are baked right into the future definition itself: 
     poll() function signature: fn poll(self: Pin<&mut Self>, cx: &mut Context)
@@ -20,6 +20,6 @@ What does this mean?
 cx (of type Context) has a method called "waker()", which returns a "Waker" instance that is bound to the current task (bound, or linked, to this future, in the same way a build in timer/alarm is bound to an oven in a bakery)
 This "Waker" instance has a "wake()" method, which, when called, signals to the executor that the task is ready to be run again
     Signals the baker that the food is cooked and should be served
-    More of a programming language, signals to the executor that a response has been received from the server and can now be worked upon
+    More of a programming language example, signals to the executor that a response has been received from the server and can now be worked upon
 
 Now that we understand, we will implement this in the next section
