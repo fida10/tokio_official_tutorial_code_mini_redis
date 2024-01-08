@@ -72,3 +72,6 @@ async fn main() {
 
     task.await.unwrap();
 }
+/*
+Usage of delay with Notify module example
+*/
